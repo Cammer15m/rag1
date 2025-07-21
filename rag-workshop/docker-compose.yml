@@ -1,0 +1,85 @@
+version: '3.8'
+services:
+  # Interactive setup container - no Python needed on host!
+  setup:
+    build: .
+    command: python setup.py
+    volumes:
+      - .:/app
+    profiles:
+      - setup
+    stdin_open: true
+    tty: true
+
+  # Local Redis instance with RedisSearch module
+  redis:
+    image: redis/redis-stack:latest
+    ports:
+      - "6379:6379"
+      - "8001:8001"  # Redis Insight web UI
+    environment:
+      - REDIS_ARGS=--loadmodule /opt/redis-stack/lib/redisearch.so
+    volumes:
+      - redis_data:/data
+    profiles:
+      - local
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # RAG application - local Redis configuration
+  rag-app-local:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DOCUMENT_SOURCE=${DOCUMENT_SOURCE}
+      - DOCUMENT_TYPE=${DOCUMENT_TYPE}
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles:
+      - local
+    volumes:
+      - .:/app
+      - ./data:/app/data  # Mount for local files
+
+  # RAG application - cloud Redis configuration
+  rag-app-cloud:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=${REDIS_URL}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DOCUMENT_SOURCE=${DOCUMENT_SOURCE}
+      - DOCUMENT_TYPE=${DOCUMENT_TYPE}
+    profiles:
+      - cloud
+    volumes:
+      - .:/app
+      - ./data:/app/data  # Mount for local files
+
+  # Streamlit web interface
+  rag-web:
+    build: .
+    command: streamlit run web_interface.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    environment:
+      - REDIS_URL=${REDIS_URL}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DOCUMENT_SOURCE=${DOCUMENT_SOURCE}
+      - DOCUMENT_TYPE=${DOCUMENT_TYPE}
+    profiles:
+      - web
+    volumes:
+      - .:/app
+      - ./data:/app/data
+
+volumes:
+  redis_data:

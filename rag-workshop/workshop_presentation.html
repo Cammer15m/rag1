@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Workshop - Interactive Presentation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 3em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .slide {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            display: none;
+            animation: slideIn 0.5s ease-in-out;
+        }
+
+        .slide.active {
+            display: block;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .slide h2 {
+            color: #4a5568;
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .slide h3 {
+            color: #2d3748;
+            font-size: 1.8em;
+            margin: 25px 0 15px 0;
+        }
+
+        .slide p, .slide li {
+            font-size: 1.1em;
+            margin-bottom: 10px;
+        }
+
+        .slide ul {
+            margin-left: 20px;
+            margin-bottom: 20px;
+        }
+
+        .highlight {
+            background: linear-gradient(120deg, #a8edea 0%, #fed6e3 100%);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-left: 5px solid #667eea;
+        }
+
+        .code-block {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            margin: 15px 0;
+            overflow-x: auto;
+        }
+
+        .navigation {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255,255,255,0.9);
+            padding: 15px 25px;
+            border-radius: 50px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+            backdrop-filter: blur(10px);
+        }
+
+        .nav-button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 0 5px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+
+        .nav-button:hover {
+            background: #5a67d8;
+            transform: translateY(-2px);
+        }
+
+        .nav-button:disabled {
+            background: #a0aec0;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .slide-counter {
+            background: #4a5568;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin: 0 10px;
+        }
+
+        .diagram {
+            text-align: center;
+            margin: 30px 0;
+            padding: 20px;
+            background: #f7fafc;
+            border-radius: 10px;
+            border: 2px dashed #cbd5e0;
+        }
+
+        .flow-step {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 25px;
+            font-weight: bold;
+        }
+
+        .arrow {
+            font-size: 1.5em;
+            color: #667eea;
+            margin: 0 10px;
+        }
+
+        .key-point {
+            background: #fed7d7;
+            border: 2px solid #fc8181;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+        }
+
+        .key-point::before {
+            content: "🔑 ";
+            font-size: 1.2em;
+        }
+
+        .demo-note {
+            background: #c6f6d5;
+            border: 2px solid #68d391;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+        }
+
+        .demo-note::before {
+            content: "🎯 ";
+            font-size: 1.2em;
+        }
+
+        .pause-indicator {
+            background: #fef5e7;
+            border: 2px solid #f6ad55;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        .pause-indicator::before {
+            content: "⏸️ ";
+            font-size: 1.5em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 RAG Workshop</h1>
+            <p>Retrieval-Augmented Generation with Redis & OpenAI</p>
+        </div>
+
+        <!-- Slide 1: Welcome & Overview -->
+        <div class="slide active">
+            <h2>Welcome to the RAG Workshop!</h2>
+            
+            <div class="highlight">
+                <h3>What You'll Learn Today</h3>
+                <ul>
+                    <li><strong>Document Processing</strong> - Extract and chunk text intelligently</li>
+                    <li><strong>Embeddings</strong> - Convert text to semantic vectors</li>
+                    <li><strong>Vector Databases</strong> - Store and search with Redis</li>
+                    <li><strong>RAG Pipeline</strong> - Combine retrieval with AI generation</li>
+                </ul>
+            </div>
+
+            <div class="diagram">
+                <div class="flow-step">📄 Document</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">🔪 Chunks</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">🧠 Embeddings</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">🗄️ Redis</div>
+                <br><br>
+                <div class="flow-step">💬 Question</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">🔍 Search</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">📝 Context</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">🤖 Answer</div>
+            </div>
+
+            <div class="key-point">
+                <strong>Key Concept:</strong> RAG gives AI systems access to specific, up-to-date information without retraining the entire model.
+            </div>
+
+            <div class="pause-indicator">
+                PAUSE 1: What is RAG and why are we building this? (15 seconds)
+            </div>
+        </div>
+
+        <!-- Slide 2: Vector Databases & Redis -->
+        <div class="slide">
+            <h2>🗄️ Vector Databases & Redis</h2>
+            
+            <h3>Traditional vs Vector Databases</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
+                <div style="background: #f7fafc; padding: 20px; border-radius: 10px;">
+                    <h4>Traditional Database</h4>
+                    <ul>
+                        <li>Stores text, numbers, dates</li>
+                        <li>Exact keyword matching</li>
+                        <li>SQL queries</li>
+                        <li>Fast for structured data</li>
+                    </ul>
+                </div>
+                <div style="background: #e6fffa; padding: 20px; border-radius: 10px;">
+                    <h4>Vector Database</h4>
+                    <ul>
+                        <li>Stores meaning as numbers</li>
+                        <li>Semantic similarity search</li>
+                        <li>Vector operations</li>
+                        <li>Understands context</li>
+                    </ul>
+                </div>
+            </div>
+
+            <h3>Why Redis for Vectors?</h3>
+            <ul>
+                <li><strong>⚡ Speed:</strong> In-memory storage for millisecond searches</li>
+                <li><strong>📈 Scale:</strong> Handle millions of vectors efficiently</li>
+                <li><strong>🔧 Simple:</strong> Easy setup and integration</li>
+                <li><strong>🏭 Production:</strong> Battle-tested by major companies</li>
+            </ul>
+
+            <div class="demo-note">
+                <strong>Analogy:</strong> Think of vectors like GPS coordinates for ideas. Similar concepts are close together in "meaning space."
+            </div>
+
+            <div class="pause-indicator">
+                PAUSE 2: Understanding Vector Databases and Redis (12 seconds)
+            </div>
+        </div>
+
+        <!-- Slide 3: Embeddings & LLMs -->
+        <div class="slide">
+            <h2>🧠 Embeddings & LLMs Working Together</h2>
+            
+            <h3>What are Embeddings?</h3>
+            <div class="highlight">
+                <p><strong>Embeddings convert text into numbers that capture meaning.</strong></p>
+                <p>Each piece of text becomes a point in high-dimensional space where similar meanings cluster together.</p>
+            </div>
+
+            <div class="code-block">
+"The cat sat on the mat" → [0.2, -0.1, 0.8, 0.3, ...]
+"A feline rested on the rug" → [0.3, -0.2, 0.7, 0.4, ...]
+                ↑ These vectors are very similar!
+            </div>
+
+            <h3>Our Embedding Model</h3>
+            <ul>
+                <li><strong>Model:</strong> Sentence Transformers (all-MiniLM-L6-v2)</li>
+                <li><strong>Dimensions:</strong> 384 numbers per text chunk</li>
+                <li><strong>Training:</strong> Millions of text pairs for similarity</li>
+                <li><strong>Speed:</strong> Optimized for real-time processing</li>
+            </ul>
+
+            <h3>The RAG Pipeline</h3>
+            <div style="background: #f0fff4; padding: 20px; border-radius: 10px; margin: 20px 0;">
+                <p><strong>1. Preparation:</strong> Document → Chunks → Embeddings → Store in Redis</p>
+                <p><strong>2. Query Time:</strong> Question → Embedding → Search Redis → Find similar chunks</p>
+                <p><strong>3. Generation:</strong> Chunks → LLM Context → Generate answer</p>
+            </div>
+
+            <div class="key-point">
+                <strong>Why This Works:</strong> The LLM can only use information we provide, preventing hallucination and ensuring accuracy.
+            </div>
+
+            <div class="pause-indicator">
+                PAUSE 3: How Embeddings and LLMs work together (12 seconds)
+            </div>
+        </div>
+
+        <!-- Slide 4: Document Processing -->
+        <div class="slide">
+            <h2>📄 Document Processing & Chunking</h2>
+            
+            <h3>Why Do We Chunk Documents?</h3>
+            <ul>
+                <li><strong>🔢 Size Limits:</strong> AI models have maximum input sizes</li>
+                <li><strong>🎯 Precision:</strong> Smaller chunks = more precise retrieval</li>
+                <li><strong>💭 Context:</strong> Each chunk should contain one complete idea</li>
+                <li><strong>⚡ Speed:</strong> Faster processing and searching</li>
+            </ul>
+
+            <h3>Our Chunking Strategy</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
+                <div>
+                    <h4>Configuration</h4>
+                    <ul>
+                        <li><strong>Size:</strong> 500 characters (~1-2 paragraphs)</li>
+                        <li><strong>Overlap:</strong> 50 characters</li>
+                        <li><strong>Boundaries:</strong> Break at sentence endings</li>
+                        <li><strong>Metadata:</strong> Track source and position</li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>Trade-offs</h4>
+                    <ul>
+                        <li><strong>Small chunks:</strong> Precise but less context</li>
+                        <li><strong>Large chunks:</strong> More context but less precise</li>
+                        <li><strong>Overlap:</strong> Prevents splitting important info</li>
+                    </ul>
+                </div>
+            </div>
+
+            <h3>Document Types We Support</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin: 20px 0;">
+                <div style="background: #e6f3ff; padding: 15px; border-radius: 10px; text-align: center;">
+                    <h4>🌐 Wikipedia URLs</h4>
+                    <p>Perfect for demos<br>Rich, structured content</p>
+                </div>
+                <div style="background: #f0f9ff; padding: 15px; border-radius: 10px; text-align: center;">
+                    <h4>📝 Text Files</h4>
+                    <p>Your own documents<br>Reports, manuals</p>
+                </div>
+                <div style="background: #fef7f0; padding: 15px; border-radius: 10px; text-align: center;">
+                    <h4>📋 PDF Files</h4>
+                    <p>Automatic extraction<br>Research papers, books</p>
+                </div>
+            </div>
+
+            <div class="demo-note">
+                <strong>Interactive:</strong> Think about a document you work with regularly. How would you want it chunked for best results?
+            </div>
+
+            <div class="pause-indicator">
+                PAUSE 4: Document Processing and Chunking Strategies (10 seconds)
+            </div>
+        </div>
+
+        <!-- Slide 5: The RAG Pipeline -->
+        <div class="slide">
+            <h2>⚡ The RAG Pipeline in Action</h2>
+            
+            <h3>What You'll See Next</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
+                <div>
+                    <h4>🔄 Processing Steps</h4>
+                    <ol>
+                        <li><strong>Document Download:</strong> Fetch your chosen content</li>
+                        <li><strong>Text Chunking:</strong> Split into manageable pieces</li>
+                        <li><strong>Embedding Generation:</strong> Convert to vectors</li>
+                        <li><strong>Database Storage:</strong> Store in Redis with index</li>
+                    </ol>
+                </div>
+                <div>
+                    <h4>⏱️ Performance Expectations</h4>
+                    <ul>
+                        <li><strong>Small docs:</strong> 30-60 seconds</li>
+                        <li><strong>Embedding gen:</strong> Slowest step</li>
+                        <li><strong>First query:</strong> Container warm-up</li>
+                        <li><strong>Subsequent:</strong> 1-3 seconds</li>
+                    </ul>
+                </div>
+            </div>
+
+            <h3>Query Processing Journey</h3>
+            <div class="diagram">
+                <p><strong>Example: "What is machine learning?"</strong></p>
+                <br>
+                <div class="flow-step">Question</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">Embedding</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">Redis Search</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">Top 5 Chunks</div>
+                <br><br>
+                <div class="flow-step">Context</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">OpenAI Prompt</div>
+                <span class="arrow">→</span>
+                <div class="flow-step">Generated Answer</div>
+            </div>
+
+            <h3>Available Interfaces</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
+                <div style="background: #f7fafc; padding: 20px; border-radius: 10px;">
+                    <h4>🖥️ CLI Interface</h4>
+                    <ul>
+                        <li>Interactive terminal</li>
+                        <li>Detailed processing logs</li>
+                        <li>Perfect for understanding</li>
+                    </ul>
+                </div>
+                <div style="background: #f0fff4; padding: 20px; border-radius: 10px;">
+                    <h4>🌐 Web Interface</h4>
+                    <ul>
+                        <li>Visual step-by-step process</li>
+                        <li>System status monitoring</li>
+                        <li>Great for demonstrations</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="key-point">
+                <strong>Bonus:</strong> Redis Insight available at localhost:8001 to peek inside the vector database!
+            </div>
+
+            <div class="pause-indicator">
+                PAUSE 5: The RAG Pipeline - What happens when we start (8 seconds)
+            </div>
+        </div>
+
+        <!-- Slide 6: Let's Begin! -->
+        <div class="slide">
+            <h2>🎯 Ready to Build Your RAG System!</h2>
+            
+            <div class="highlight">
+                <h3>🚀 Time to Start the Workshop</h3>
+                <p>Now that you understand the concepts, let's build a working RAG system together!</p>
+            </div>
+
+            <h3>What Happens Next</h3>
+            <ol style="font-size: 1.2em; line-height: 2;">
+                <li><strong>Interactive Setup:</strong> Configure Redis and OpenAI</li>
+                <li><strong>Document Processing:</strong> Watch your document get chunked and embedded</li>
+                <li><strong>Vector Storage:</strong> See embeddings stored in Redis</li>
+                <li><strong>Query Time:</strong> Ask questions and get intelligent answers!</li>
+            </ol>
+
+            <div class="demo-note">
+                <strong>First Question Ideas:</strong>
+                <ul>
+                    <li>"What is [main topic of your document]?"</li>
+                    <li>"Summarize the key points"</li>
+                    <li>"What are the main applications mentioned?"</li>
+                    <li>"Explain [specific concept] in simple terms"</li>
+                </ul>
+            </div>
+
+            <div style="background: #e6fffa; padding: 30px; border-radius: 15px; text-align: center; margin: 30px 0;">
+                <h3 style="color: #2d3748; margin-bottom: 15px;">🎉 Let's Build Something Amazing!</h3>
+                <p style="font-size: 1.2em; color: #4a5568;">
+                    You're about to see a complete AI system come to life.<br>
+                    Don't worry if it seems complex - we'll walk through each step together.
+                </p>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="navigation">
+            <button class="nav-button" id="prevBtn" onclick="changeSlide(-1)">← Previous</button>
+            <span class="slide-counter">
+                <span id="currentSlide">1</span> / <span id="totalSlides">6</span>
+            </span>
+            <button class="nav-button" id="nextBtn" onclick="changeSlide(1)">Next →</button>
+        </div>
+    </div>
+
+    <script>
+        let currentSlideIndex = 0;
+        const slides = document.querySelectorAll('.slide');
+        const totalSlides = slides.length;
+
+        document.getElementById('totalSlides').textContent = totalSlides;
+
+        function showSlide(index) {
+            slides.forEach(slide => slide.classList.remove('active'));
+            slides[index].classList.add('active');
+            
+            document.getElementById('currentSlide').textContent = index + 1;
+            document.getElementById('prevBtn').disabled = index === 0;
+            document.getElementById('nextBtn').disabled = index === totalSlides - 1;
+        }
+
+        function changeSlide(direction) {
+            const newIndex = currentSlideIndex + direction;
+            if (newIndex >= 0 && newIndex < totalSlides) {
+                currentSlideIndex = newIndex;
+                showSlide(currentSlideIndex);
+            }
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'ArrowLeft') changeSlide(-1);
+            if (event.key === 'ArrowRight') changeSlide(1);
+        });
+
+        // Initialize
+        showSlide(0);
+    </script>
+</body>
+</html>
