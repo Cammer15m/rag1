@@ -69,12 +69,15 @@ services:
     ports:
       - "8501:8501"
     environment:
-      - REDIS_URL=${REDIS_URL}
+      - REDIS_URL=redis://redis:6379
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - DOCUMENT_SOURCE=${DOCUMENT_SOURCE}
       - DOCUMENT_TYPE=${DOCUMENT_TYPE}
     profiles:
       - web
+    depends_on:
+      redis:
+        condition: service_healthy
     volumes:
       - .:/app
       - ./data:/app/data
