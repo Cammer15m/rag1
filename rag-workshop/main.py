@@ -14,6 +14,9 @@ import os
 import sys
 import json
 import logging
+import hashlib
+import uuid
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from dotenv import load_dotenv
@@ -278,6 +281,150 @@ class RedisVectorStore:
             logger.error(f"Error during similarity search: {e}")
             return []
 
+    def get_indexed_documents(self) -> List[Dict[str, Any]]:
+        """Get list of documents currently indexed in Redis"""
+        try:
+            # Get all document metadata keys
+            doc_keys = self.redis_client.keys("doc_meta:*")
+            documents = []
+
+            for key in doc_keys:
+                doc_info = self.redis_client.hgetall(key)
+                if doc_info:
+                    # Convert bytes to strings
+                    doc_info = {k.decode() if isinstance(k, bytes) else k:
+                               v.decode() if isinstance(v, bytes) else v
+                               for k, v in doc_info.items()}
+                    documents.append(doc_info)
+
+            return documents
+        except Exception as e:
+            logger.error(f"Error getting indexed documents: {e}")
+            return []
+
+    def store_document_metadata(self, source: str, doc_type: str, chunk_count: int):
+        """Store metadata about processed document"""
+        doc_hash = hashlib.md5(source.encode()).hexdigest()
+        key = f"doc_meta:{doc_hash}"
+
+        metadata = {
+            "source": source,
+            "type": doc_type,
+            "chunk_count": chunk_count,
+            "processed_date": datetime.now().isoformat(),
+            "doc_hash": doc_hash
+        }
+
+        self.redis_client.hset(key, mapping=metadata)
+        logger.info(f"Stored metadata for document: {source}")
+
+    def clear_document_embeddings(self, source: str = None):
+        """Clear embeddings for specific document or all documents"""
+        try:
+            if source:
+                # Clear specific document
+                doc_hash = hashlib.md5(source.encode()).hexdigest()
+
+                # Get all chunk keys for this document
+                chunk_keys = self.redis_client.keys(f"{self.index_name}:*")
+                deleted_count = 0
+
+                for key in chunk_keys:
+                    chunk_data = self.redis_client.hget(key, "source")
+                    if chunk_data and chunk_data.decode() == source:
+                        self.redis_client.delete(key)
+                        deleted_count += 1
+
+                # Delete document metadata
+                self.redis_client.delete(f"doc_meta:{doc_hash}")
+                logger.info(f"Cleared {deleted_count} chunks for document: {source}")
+
+            else:
+                # Clear all documents
+                chunk_keys = self.redis_client.keys(f"{self.index_name}:*")
+                meta_keys = self.redis_client.keys("doc_meta:*")
+
+                if chunk_keys:
+                    self.redis_client.delete(*chunk_keys)
+                if meta_keys:
+                    self.redis_client.delete(*meta_keys)
+
+                logger.info(f"Cleared all embeddings: {len(chunk_keys)} chunks, {len(meta_keys)} documents")
+
+        except Exception as e:
+            logger.error(f"Error clearing embeddings: {e}")
+
+    def document_exists(self, source: str) -> bool:
+        """Check if document is already indexed"""
+        doc_hash = hashlib.md5(source.encode()).hexdigest()
+        return self.redis_client.exists(f"doc_meta:{doc_hash}")
+
+    def store_chat_entry(self, question: str, answer: str, document_source: str):
+        """Store chat entry in Redis"""
+        chat_id = str(uuid.uuid4())
+        key = f"chat:{chat_id}"
+
+        entry = {
+            "question": question,
+            "answer": answer,
+            "document_source": document_source,
+            "timestamp": datetime.now().isoformat(),
+            "chat_id": chat_id
+        }
+
+        self.redis_client.hset(key, mapping=entry)
+        logger.info(f"Stored chat entry: {chat_id}")
+
+    def get_chat_history(self, document_source: str = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get chat history, optionally filtered by document source"""
+        try:
+            chat_keys = self.redis_client.keys("chat:*")
+            chat_entries = []
+
+            for key in chat_keys:
+                entry = self.redis_client.hgetall(key)
+                if entry:
+                    # Convert bytes to strings
+                    entry = {k.decode() if isinstance(k, bytes) else k:
+                            v.decode() if isinstance(v, bytes) else v
+                            for k, v in entry.items()}
+
+                    # Filter by document source if specified
+                    if document_source is None or entry.get("document_source") == document_source:
+                        chat_entries.append(entry)
+
+            # Sort by timestamp (newest first)
+            chat_entries.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+
+            return chat_entries[:limit]
+
+        except Exception as e:
+            logger.error(f"Error getting chat history: {e}")
+            return []
+
+    def clear_chat_history(self, document_source: str = None):
+        """Clear chat history, optionally filtered by document source"""
+        try:
+            chat_keys = self.redis_client.keys("chat:*")
+            deleted_count = 0
+
+            for key in chat_keys:
+                if document_source:
+                    # Check if this entry is for the specified document
+                    entry_source = self.redis_client.hget(key, "document_source")
+                    if entry_source and entry_source.decode() == document_source:
+                        self.redis_client.delete(key)
+                        deleted_count += 1
+                else:
+                    # Delete all chat entries
+                    self.redis_client.delete(key)
+                    deleted_count += 1
+
+            logger.info(f"Cleared {deleted_count} chat entries")
+
+        except Exception as e:
+            logger.error(f"Error clearing chat history: {e}")
+
 class RAGSystem:
     """Main RAG system orchestrating all components"""
     
@@ -293,10 +440,21 @@ class RAGSystem:
         
         logger.info("RAG System initialized successfully")
     
-    def process_document(self, source: str, doc_type: str) -> int:
+    def process_document(self, source: str, doc_type: str, force_reprocess: bool = False) -> int:
         """Process a document and store it in the vector database"""
         logger.info(f"Processing document: {source} (type: {doc_type})")
-        
+
+        # Check if document already exists
+        if not force_reprocess and self.vector_store.document_exists(source):
+            logger.info(f"Document already indexed: {source}")
+            # Get existing chunk count from metadata
+            doc_hash = hashlib.md5(source.encode()).hexdigest()
+            metadata = self.vector_store.redis_client.hgetall(f"doc_meta:{doc_hash}")
+            if metadata:
+                chunk_count = int(metadata.get(b"chunk_count", 0))
+                logger.info(f"Using existing {chunk_count} chunks")
+                return chunk_count
+
         # Process document based on type
         if doc_type == "1":  # Wikipedia URL
             chunks = self.document_processor.process_wikipedia_url(source)
@@ -306,32 +464,38 @@ class RAGSystem:
             chunks = self.document_processor.process_pdf_file(source)
         else:
             raise ValueError(f"Unsupported document type: {doc_type}")
-        
+
         # Generate embeddings
         chunks_with_embeddings = self.embedding_generator.generate_embeddings(chunks)
-        
+
         # Store in vector database
         self.vector_store.store_chunks(chunks_with_embeddings)
-        
+
+        # Store document metadata
+        self.vector_store.store_document_metadata(source, doc_type, len(chunks))
+
         logger.info(f"Successfully processed and stored {len(chunks)} chunks")
         return len(chunks)
     
-    def query(self, question: str, k: int = 5) -> str:
+    def query(self, question: str, document_source: str = None, k: int = 5, store_history: bool = True) -> str:
         """Answer a question using RAG"""
         logger.info(f"Processing query: {question}")
-        
+
         # Generate query embedding
         query_embedding = self.embedding_generator.generate_query_embedding(question)
-        
+
         # Retrieve relevant chunks
         relevant_chunks = self.vector_store.similarity_search(query_embedding, k=k)
-        
+
         if not relevant_chunks:
-            return "I couldn't find any relevant information to answer your question."
-        
+            answer = "I couldn't find any relevant information to answer your question."
+            if store_history and document_source:
+                self.vector_store.store_chat_entry(question, answer, document_source)
+            return answer
+
         # Prepare context for OpenAI
         context = "\n\n".join([chunk["text"] for chunk in relevant_chunks])
-        
+
         # Generate response using OpenAI
         prompt = f"""Based on the following context, please answer the question. If the context doesn't contain enough information to answer the question, say so.
 
@@ -341,7 +505,7 @@ Context:
 Question: {question}
 
 Answer:"""
-        
+
         try:
             response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
@@ -354,17 +518,44 @@ Answer:"""
             )
 
             answer = response.choices[0].message.content
-            
+
+            # Store chat history in Redis
+            if store_history and document_source:
+                self.vector_store.store_chat_entry(question, answer, document_source)
+
             # Log retrieval info
             logger.info(f"Retrieved {len(relevant_chunks)} chunks for context")
             for i, chunk in enumerate(relevant_chunks):
                 logger.info(f"  Chunk {i+1}: Score {chunk['score']:.4f} from {chunk['source']}")
-            
+
             return answer
-            
+
         except Exception as e:
             logger.error(f"Error generating response: {e}")
-            return f"Sorry, I encountered an error while generating the response: {e}"
+            error_answer = f"Sorry, I encountered an error while generating the response: {e}"
+            if store_history and document_source:
+                self.vector_store.store_chat_entry(question, error_answer, document_source)
+            return error_answer
+
+    def get_indexed_documents(self) -> List[Dict[str, Any]]:
+        """Get list of documents currently indexed"""
+        return self.vector_store.get_indexed_documents()
+
+    def clear_document_embeddings(self, source: str = None):
+        """Clear embeddings for specific document or all documents"""
+        self.vector_store.clear_document_embeddings(source)
+
+    def get_chat_history(self, document_source: str = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get chat history, optionally filtered by document source"""
+        return self.vector_store.get_chat_history(document_source, limit)
+
+    def clear_chat_history(self, document_source: str = None):
+        """Clear chat history, optionally filtered by document source"""
+        self.vector_store.clear_chat_history(document_source)
+
+    def document_exists(self, source: str) -> bool:
+        """Check if document is already indexed"""
+        return self.vector_store.document_exists(source)
 
 def main():
     """Main application entry point"""
