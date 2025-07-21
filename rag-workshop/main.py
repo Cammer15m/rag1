@@ -287,27 +287,9 @@ class RAGSystem:
         self.embedding_generator = EmbeddingGenerator()
         self.vector_store = RedisVectorStore(redis_url)
         
-        # Setup OpenAI
+        # Setup OpenAI (using legacy API for compatibility)
         openai.api_key = openai_api_key
-
-        # Clear any proxy environment variables that might interfere
-        import os
-        proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
-        original_proxies = {}
-        for var in proxy_vars:
-            if var in os.environ:
-                original_proxies[var] = os.environ[var]
-                del os.environ[var]
-
-        try:
-            self.openai_client = openai.OpenAI(api_key=openai_api_key)
-        except Exception as e:
-            logger.error(f"Failed to initialize OpenAI client: {e}")
-            raise
-        finally:
-            # Restore proxy environment variables
-            for var, value in original_proxies.items():
-                os.environ[var] = value
+        self.openai_client = None  # Not needed for legacy API
         
         logger.info("RAG System initialized successfully")
     
@@ -361,7 +343,7 @@ Question: {question}
 Answer:"""
         
         try:
-            response = self.openai_client.chat.completions.create(
+            response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that answers questions based on provided context."},
@@ -370,7 +352,7 @@ Answer:"""
                 max_tokens=500,
                 temperature=0.7
             )
-            
+
             answer = response.choices[0].message.content
             
             # Log retrieval info
