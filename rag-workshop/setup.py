@@ -10,6 +10,8 @@ import time
 import getpass
 import subprocess
 from pathlib import Path
+import openai
+import redis
 from dotenv import load_dotenv, set_key
 import requests
 
@@ -71,6 +73,24 @@ def setup_redis():
 
     return redis_url, docker_profile
 
+def validate_openai_key(api_key):
+    """Validate OpenAI API key by making a test request"""
+    try:
+        # Set up the client with the legacy API (0.28.1)
+        openai.api_key = api_key
+
+        # Make a simple test request to validate the key
+        response = openai.Model.list()
+        return True, "API key is valid"
+    except openai.error.AuthenticationError:
+        return False, "Invalid API key - please check your key"
+    except openai.error.RateLimitError:
+        return True, "API key is valid (rate limit reached, but key works)"
+    except openai.error.APIConnectionError:
+        return False, "Cannot connect to OpenAI API - check your internet connection"
+    except Exception as e:
+        return False, f"API validation error: {str(e)}"
+
 def setup_openai():
     """Configure OpenAI API"""
     print("\nSTEP 2: OpenAI Configuration")
@@ -79,11 +99,22 @@ def setup_openai():
 
     while True:
         openai_key = getpass.getpass("Enter your OpenAI API key: ").strip()
-        if openai_key:
-            print("OpenAI API key configured")
+        if not openai_key:
+            print("API key cannot be empty")
+            continue
+
+        print("Validating API key...")
+        is_valid, message = validate_openai_key(openai_key)
+
+        if is_valid:
+            print(f"✅ {message}")
             break
         else:
-            print("API key cannot be empty")
+            print(f"❌ {message}")
+            retry = input("Would you like to try a different API key? (y/n): ").strip().lower()
+            if retry != 'y':
+                print("Setup cancelled.")
+                sys.exit(1)
 
     return openai_key
 

@@ -12,6 +12,47 @@ if [ "$1" = "--fresh" ]; then
     rm -f .env
 fi
 
+# Function to wait for and validate Redis connection
+wait_for_redis() {
+    local redis_url="$1"
+    local max_attempts=30
+    local attempt=1
+
+    echo "Waiting for Redis to be ready..."
+
+    while [ $attempt -le $max_attempts ]; do
+        if [ "$redis_url" = "redis://localhost:6379" ]; then
+            # Local Redis - check if container is responding
+            if docker-compose exec -T redis redis-cli ping >/dev/null 2>&1; then
+                echo "✅ Redis is ready and responding"
+                return 0
+            fi
+        else
+            # Cloud Redis - use redis-cli to test connection
+            if command -v redis-cli >/dev/null 2>&1; then
+                if redis-cli -u "$redis_url" ping >/dev/null 2>&1; then
+                    echo "✅ Redis connection successful"
+                    return 0
+                fi
+            else
+                # Fallback: assume cloud Redis is working if URL is provided
+                echo "✅ Using cloud Redis (cannot validate without redis-cli)"
+                return 0
+            fi
+        fi
+
+        echo "Attempt $attempt/$max_attempts - Redis not ready yet..."
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+
+    echo "❌ Redis failed to start or is not accessible"
+    echo "   Please check:"
+    echo "   - Docker containers are running: docker-compose ps"
+    echo "   - Redis logs: docker-compose logs redis"
+    return 1
+}
+
 echo "RAG Workshop - Complete Setup & Launch"
 echo "=========================================="
 echo ""
@@ -161,23 +202,75 @@ case $interface_choice in
     1)
         echo "Starting CLI interface..."
         echo "You'll be able to ask questions in the terminal"
-        docker-compose --profile $PROFILE up
+        docker-compose --profile $PROFILE up -d
+
+        # Wait for Redis to be ready
+        if ! wait_for_redis "$REDIS_URL"; then
+            echo "❌ Workshop startup failed - Redis is not accessible"
+            docker-compose down
+            exit 1
+        fi
+
+        # Now start the main application in foreground
+        docker-compose --profile $PROFILE up rag-app-$PROFILE
         ;;
     2)
         echo "Starting web interface..."
         echo "Open http://localhost:8501 in your browser"
-        docker-compose --profile $PROFILE --profile web up
+        docker-compose --profile $PROFILE --profile web up -d
+
+        # Wait for Redis to be ready
+        if ! wait_for_redis "$REDIS_URL"; then
+            echo "❌ Workshop startup failed - Redis is not accessible"
+            docker-compose down
+            exit 1
+        fi
+
+        echo "✅ All services are ready!"
+        echo "🌐 Web interface: http://localhost:8501"
+        if [ "$PROFILE" = "local" ]; then
+            echo "🔍 Redis Insight: http://localhost:8001"
+        fi
+
+        # Keep containers running and show logs
+        docker-compose --profile $PROFILE --profile web logs -f
         ;;
     3)
         echo "Starting both interfaces..."
         echo "Terminal: Interactive CLI"
         echo "Browser: http://localhost:8501"
         echo "Redis Insight: http://localhost:8001 (if using local Redis)"
-        docker-compose --profile $PROFILE --profile web up
+        docker-compose --profile $PROFILE --profile web up -d
+
+        # Wait for Redis to be ready
+        if ! wait_for_redis "$REDIS_URL"; then
+            echo "❌ Workshop startup failed - Redis is not accessible"
+            docker-compose down
+            exit 1
+        fi
+
+        echo "✅ All services are ready!"
+        echo "🌐 Web interface: http://localhost:8501"
+        if [ "$PROFILE" = "local" ]; then
+            echo "🔍 Redis Insight: http://localhost:8001"
+        fi
+
+        # Keep containers running and show logs
+        docker-compose --profile $PROFILE --profile web logs -f
         ;;
     *)
         echo "Starting CLI interface (default)..."
-        docker-compose --profile $PROFILE up
+        docker-compose --profile $PROFILE up -d
+
+        # Wait for Redis to be ready
+        if ! wait_for_redis "$REDIS_URL"; then
+            echo "❌ Workshop startup failed - Redis is not accessible"
+            docker-compose down
+            exit 1
+        fi
+
+        # Now start the main application in foreground
+        docker-compose --profile $PROFILE up rag-app-$PROFILE
         ;;
 esac
 
