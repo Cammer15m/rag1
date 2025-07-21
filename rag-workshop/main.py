@@ -289,7 +289,25 @@ class RAGSystem:
         
         # Setup OpenAI
         openai.api_key = openai_api_key
-        self.openai_client = openai.OpenAI(api_key=openai_api_key)
+
+        # Clear any proxy environment variables that might interfere
+        import os
+        proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
+        original_proxies = {}
+        for var in proxy_vars:
+            if var in os.environ:
+                original_proxies[var] = os.environ[var]
+                del os.environ[var]
+
+        try:
+            self.openai_client = openai.OpenAI(api_key=openai_api_key)
+        except Exception as e:
+            logger.error(f"Failed to initialize OpenAI client: {e}")
+            raise
+        finally:
+            # Restore proxy environment variables
+            for var, value in original_proxies.items():
+                os.environ[var] = value
         
         logger.info("RAG System initialized successfully")
     
