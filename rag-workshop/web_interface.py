@@ -141,8 +141,7 @@ def main():
                             'answer': answer
                         })
 
-                        # Clear input
-                        st.session_state.question_input = ""
+                        # Rerun to refresh the page (input will be cleared automatically)
                         st.rerun()
 
                     except Exception as e:
