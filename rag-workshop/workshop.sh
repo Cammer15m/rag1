@@ -2,6 +2,15 @@
 
 # RAG Workshop - One Command to Rule Them All
 # This script handles everything: Docker check, setup, and launch
+# Usage: ./workshop.sh [--fresh]  (--fresh removes existing configuration)
+
+# Check for --fresh flag
+FRESH_START=false
+if [ "$1" = "--fresh" ]; then
+    FRESH_START=true
+    echo "Fresh start requested - removing existing configuration"
+    rm -f .env
+fi
 
 echo "RAG Workshop - Complete Setup & Launch"
 echo "=========================================="

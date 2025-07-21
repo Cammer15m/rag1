@@ -24,6 +24,10 @@ docker-compose down --remove-orphans
 print_status "INFO" "Removing workshop Docker images..."
 docker images | grep rag-workshop | awk '{print $3}' | xargs docker rmi -f 2>/dev/null || true
 
+# Remove configuration for fresh start
+print_status "INFO" "Removing configuration file..."
+rm -f .env
+
 # Optional: Remove Docker volumes (uncomment if you want to clean all data)
 # print_status "INFO" "Removing Docker volumes..."
 # docker-compose down --volumes
