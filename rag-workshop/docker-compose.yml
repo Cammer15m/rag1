@@ -17,8 +17,6 @@ services:
     ports:
       - "6379:6379"
       - "8001:8001"  # Redis Insight web UI
-    environment:
-      - REDIS_ARGS=--loadmodule /opt/redis-stack/lib/redisearch.so
     volumes:
       - redis_data:/data
     profiles:
