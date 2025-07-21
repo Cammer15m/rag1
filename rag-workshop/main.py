@@ -28,15 +28,6 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 import openai
 
-# LangChain for semantic caching
-try:
-    from langchain_redis.cache import RedisSemanticCache
-    from langchain_core.embeddings import Embeddings
-    LANGCHAIN_AVAILABLE = True
-except ImportError:
-    LANGCHAIN_AVAILABLE = False
-    logger.warning("LangChain Redis not available. Semantic caching will be disabled.")
-
 # Document processing
 import requests
 from bs4 import BeautifulSoup
@@ -45,6 +36,15 @@ import PyPDF2
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# LangChain for semantic caching
+try:
+    from langchain_redis.cache import RedisSemanticCache
+    from langchain_core.embeddings import Embeddings
+    LANGCHAIN_AVAILABLE = True
+except ImportError:
+    LANGCHAIN_AVAILABLE = False
+    logger.warning("LangChain Redis not available. Semantic caching will be disabled.")
 
 @dataclass
 class DocumentChunk:
