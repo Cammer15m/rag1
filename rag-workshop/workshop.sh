@@ -126,31 +126,45 @@ echo ""
 read -p "Enter choice (1-3): " interface_choice
 
 echo ""
-echo "Building and starting containers..."
-echo "   (This may take a few minutes on first run)"
+echo "Preparing workshop environment..."
+echo "   - Stopping any existing containers"
+echo "   - Building fresh containers with latest code"
+echo "   - This ensures a clean workshop experience"
+echo ""
+
+# Stop any existing containers
+echo "Stopping existing containers..."
+docker-compose down --remove-orphans 2>/dev/null || true
+
+# Build containers with no cache to ensure latest code
+echo "Building containers (this may take a few minutes)..."
+docker-compose build --no-cache
+
+echo ""
+echo "Starting workshop containers..."
 echo ""
 
 case $interface_choice in
     1)
         echo "Starting CLI interface..."
         echo "You'll be able to ask questions in the terminal"
-        docker-compose --profile $PROFILE up --build
+        docker-compose --profile $PROFILE up
         ;;
     2)
         echo "Starting web interface..."
         echo "Open http://localhost:8501 in your browser"
-        docker-compose --profile $PROFILE --profile web up --build
+        docker-compose --profile $PROFILE --profile web up
         ;;
     3)
         echo "Starting both interfaces..."
         echo "Terminal: Interactive CLI"
         echo "Browser: http://localhost:8501"
         echo "Redis Insight: http://localhost:8001 (if using local Redis)"
-        docker-compose --profile $PROFILE --profile web up --build
+        docker-compose --profile $PROFILE --profile web up
         ;;
     *)
         echo "Starting CLI interface (default)..."
-        docker-compose --profile $PROFILE up --build
+        docker-compose --profile $PROFILE up
         ;;
 esac
 
@@ -163,7 +177,9 @@ echo "   - Embedding generation for semantic search"
 echo "   - Vector storage with Redis"
 echo "   - Retrieval-augmented generation with OpenAI"
 echo ""
-echo "To run again: ./workshop.sh"
-echo "To clean up: docker-compose down"
+echo "Next steps:"
+echo "   - Run again: ./workshop.sh"
+echo "   - Clean shutdown: ./stop.sh"
+echo "   - Quick stop: docker-compose down"
 echo ""
 echo "Thank you for participating in the RAG Workshop!"
