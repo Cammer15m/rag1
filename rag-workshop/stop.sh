@@ -20,9 +20,9 @@ docker-compose down
 print_status "INFO" "Removing any orphaned containers..."
 docker-compose down --remove-orphans
 
-# Optional: Remove Docker images (uncomment if you want to clean everything)
-# print_status "INFO" "Removing Docker images..."
-# docker-compose down --rmi all
+# Remove workshop images for fresh rebuild
+print_status "INFO" "Removing workshop Docker images..."
+docker images | grep rag-workshop | awk '{print $3}' | xargs docker rmi -f 2>/dev/null || true
 
 # Optional: Remove Docker volumes (uncomment if you want to clean all data)
 # print_status "INFO" "Removing Docker volumes..."

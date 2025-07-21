@@ -132,9 +132,13 @@ echo "   - Building fresh containers with latest code"
 echo "   - This ensures a clean workshop experience"
 echo ""
 
-# Stop any existing containers
+# Stop any existing containers and remove old images
 echo "Stopping existing containers..."
 docker-compose down --remove-orphans 2>/dev/null || true
+
+# Remove old workshop images to force complete rebuild
+echo "Removing old workshop images..."
+docker images | grep rag-workshop | awk '{print $3}' | xargs docker rmi -f 2>/dev/null || true
 
 # Build containers with no cache to ensure latest code
 echo "Building containers (this may take a few minutes)..."
