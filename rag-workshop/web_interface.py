@@ -154,6 +154,38 @@ def main():
             except Exception as e:
                 st.error(f"Error loading indexed documents: {e}")
 
+        # Semantic Cache Management
+        st.markdown("---")
+        st.subheader("Semantic Cache")
+
+        # Semantic cache toggle
+        use_cache = st.checkbox("Enable Semantic Cache",
+                               value=st.session_state.get('use_semantic_cache', False),
+                               help="Cache similar questions for faster responses")
+        st.session_state.use_semantic_cache = use_cache
+
+        # Cache threshold slider
+        cache_threshold = st.slider("Similarity Threshold",
+                                   min_value=0.7, max_value=0.95,
+                                   value=st.session_state.get('cache_threshold', 0.85),
+                                   step=0.05,
+                                   help="Higher = more strict matching")
+        st.session_state.cache_threshold = cache_threshold
+
+        # Cache statistics
+        if hasattr(st.session_state, 'rag_system'):
+            try:
+                cache_stats = st.session_state.rag_system.get_cache_stats(document_source)
+                st.metric("Cache Entries", cache_stats.get('document_cache_entries', 0))
+
+                # Clear cache button
+                if st.button("Clear Semantic Cache"):
+                    st.session_state.rag_system.clear_semantic_cache(document_source)
+                    st.success("Semantic cache cleared!")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Error loading cache stats: {e}")
+
         # Chat history management
         st.markdown("---")
         st.subheader("Chat History")
@@ -216,21 +248,51 @@ def main():
 
             # Process question
             if ask_button and question:
-                with st.spinner("Searching for relevant information..."):
+                # Get cache settings
+                use_cache = st.session_state.get('use_semantic_cache', False)
+                cache_threshold = st.session_state.get('cache_threshold', 0.85)
+
+                spinner_text = "Checking semantic cache..." if use_cache else "Searching for relevant information..."
+
+                with st.spinner(spinner_text):
                     try:
                         document_source = os.getenv('DOCUMENT_SOURCE')
-                        answer = st.session_state.rag_system.query(
+                        answer, metadata = st.session_state.rag_system.query(
                             question,
                             document_source=document_source,
-                            store_history=True
+                            store_history=True,
+                            use_semantic_cache=use_cache,
+                            cache_threshold=cache_threshold
                         )
+
+                        # Show performance metrics
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            if metadata['cache_hit']:
+                                st.success(f"🚀 Cache Hit! ({metadata['response_time_ms']}ms)")
+                            else:
+                                st.info(f"⏱️ Full Search ({metadata['response_time_ms']}ms)")
+
+                        with col2:
+                            if metadata['cache_hit']:
+                                st.metric("Similarity", f"{metadata['similarity_score']:.3f}")
+                            else:
+                                st.metric("Chunks", metadata['chunks_retrieved'])
+
+                        with col3:
+                            if use_cache:
+                                cache_stats = st.session_state.rag_system.get_cache_stats(document_source)
+                                st.metric("Cache Size", cache_stats.get('document_cache_entries', 0))
 
                         # Add to local session state for immediate display
                         new_entry = {
                             'question': question,
                             'answer': answer,
                             'timestamp': datetime.now().isoformat(),
-                            'document_source': document_source
+                            'document_source': document_source,
+                            'cache_hit': metadata['cache_hit'],
+                            'response_time_ms': metadata['response_time_ms'],
+                            'similarity_score': metadata.get('similarity_score', 0.0)
                         }
                         st.session_state.chat_history.insert(0, new_entry)
 
@@ -258,10 +320,30 @@ def main():
                     else:
                         time_str = 'Unknown time'
 
-                    with st.expander(f"Q{i+1}: {chat['question'][:50]}... ({time_str})", expanded=(i==0)):
+                    # Add cache indicator to title
+                    cache_indicator = ""
+                    if chat.get('cache_hit'):
+                        cache_indicator = " 🚀"
+                    elif 'response_time_ms' in chat:
+                        cache_indicator = " ⏱️"
+
+                    with st.expander(f"Q{i+1}: {chat['question'][:50]}...{cache_indicator} ({time_str})", expanded=(i==0)):
                         st.markdown(f"**Question:** {chat['question']}")
                         st.markdown(f"**Answer:** {chat['answer']}")
-                        st.caption(f"📄 Document: {chat.get('document_source', 'Unknown')}")
+
+                        # Performance info
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.caption(f"📄 Document: {chat.get('document_source', 'Unknown')}")
+                        with col2:
+                            if 'response_time_ms' in chat:
+                                st.caption(f"⏱️ Response: {chat['response_time_ms']}ms")
+                        with col3:
+                            if chat.get('cache_hit'):
+                                st.caption(f"🚀 Cache Hit (sim: {chat.get('similarity_score', 0):.3f})")
+                            else:
+                                st.caption(f"🔍 Full Search")
+
                         st.caption(f"🕒 Time: {time_str}")
     
     with col2:

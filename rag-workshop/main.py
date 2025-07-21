@@ -16,8 +16,9 @@ import json
 import logging
 import hashlib
 import uuid
+import time
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
@@ -26,6 +27,15 @@ import redis
 import numpy as np
 from sentence_transformers import SentenceTransformer
 import openai
+
+# LangChain for semantic caching
+try:
+    from langchain_redis.cache import RedisSemanticCache
+    from langchain_core.embeddings import Embeddings
+    LANGCHAIN_AVAILABLE = True
+except ImportError:
+    LANGCHAIN_AVAILABLE = False
+    logger.warning("LangChain Redis not available. Semantic caching will be disabled.")
 
 # Document processing
 import requests
@@ -171,6 +181,23 @@ class EmbeddingGenerator:
     def generate_query_embedding(self, query: str) -> np.ndarray:
         """Generate embedding for a query"""
         return self.model.encode([query])[0]
+
+# LangChain Embeddings wrapper for our SentenceTransformer
+class SentenceTransformerEmbeddings(Embeddings):
+    """Wrapper to make SentenceTransformer compatible with LangChain"""
+
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+        self.model = SentenceTransformer(model_name)
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        """Embed search docs."""
+        embeddings = self.model.encode(texts)
+        return [embedding.tolist() for embedding in embeddings]
+
+    def embed_query(self, text: str) -> List[float]:
+        """Embed query text."""
+        embedding = self.model.encode([text])[0]
+        return embedding.tolist()
 
 class RedisVectorStore:
     """Redis-based vector storage with similarity search"""
@@ -425,19 +452,58 @@ class RedisVectorStore:
         except Exception as e:
             logger.error(f"Error clearing chat history: {e}")
 
+    def get_cache_stats(self, document_source: str = None) -> Dict[str, Any]:
+        """Get semantic cache statistics"""
+        try:
+            # For Redis built-in semantic cache, we'll count cache keys
+            cache_keys = self.redis_client.keys("llm_cache:*")
+            return {
+                "total_cache_entries": len(cache_keys),
+                "document_cache_entries": len(cache_keys),
+                "document_source": document_source
+            }
+        except Exception as e:
+            logger.error(f"Error getting cache stats: {e}")
+            return {"total_cache_entries": 0, "document_cache_entries": 0}
+
+    def clear_semantic_cache(self, document_source: str = None):
+        """Clear semantic cache"""
+        try:
+            cache_keys = self.redis_client.keys("llm_cache:*")
+            if cache_keys:
+                self.redis_client.delete(*cache_keys)
+                logger.info(f"Cleared {len(cache_keys)} semantic cache entries")
+        except Exception as e:
+            logger.error(f"Error clearing semantic cache: {e}")
+
 class RAGSystem:
     """Main RAG system orchestrating all components"""
-    
+
     def __init__(self, redis_url: str, openai_api_key: str):
         # Initialize components
         self.document_processor = DocumentProcessor()
         self.embedding_generator = EmbeddingGenerator()
         self.vector_store = RedisVectorStore(redis_url)
-        
+
         # Setup OpenAI (using legacy API for compatibility)
         openai.api_key = openai_api_key
         self.openai_client = None  # Not needed for legacy API
-        
+
+        # Initialize semantic cache if LangChain is available
+        self.semantic_cache = None
+        if LANGCHAIN_AVAILABLE:
+            try:
+                embeddings = SentenceTransformerEmbeddings()
+                self.semantic_cache = RedisSemanticCache(
+                    redis_url=redis_url,
+                    embedding=embeddings,
+                    score_threshold=0.85
+                )
+                logger.info("Semantic cache initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize semantic cache: {e}")
+                self.semantic_cache = None
+
         logger.info("RAG System initialized successfully")
     
     def process_document(self, source: str, doc_type: str, force_reprocess: bool = False) -> int:
@@ -477,21 +543,67 @@ class RAGSystem:
         logger.info(f"Successfully processed and stored {len(chunks)} chunks")
         return len(chunks)
     
-    def query(self, question: str, document_source: str = None, k: int = 5, store_history: bool = True) -> str:
-        """Answer a question using RAG"""
+    def query(self, question: str, document_source: str = None, k: int = 5,
+             store_history: bool = True, use_semantic_cache: bool = False,
+             cache_threshold: float = 0.85) -> Tuple[str, Dict[str, Any]]:
+        """Answer a question using RAG with optional semantic caching"""
+        start_time = time.time()
         logger.info(f"Processing query: {question}")
 
-        # Generate query embedding
-        query_embedding = self.embedding_generator.generate_query_embedding(question)
+        # Initialize response metadata
+        metadata = {
+            "cache_hit": False,
+            "similarity_score": 0.0,
+            "response_time_ms": 0,
+            "chunks_retrieved": 0,
+            "cache_enabled": use_semantic_cache and self.semantic_cache is not None
+        }
 
+        # Check semantic cache if enabled and available
+        if use_semantic_cache and self.semantic_cache:
+            try:
+                # Update cache threshold
+                self.semantic_cache.score_threshold = cache_threshold
+
+                # Create a simple prompt for cache lookup
+                cache_key = f"question:{question}"
+                cached_result = self.semantic_cache.lookup(cache_key, question)
+
+                if cached_result:
+                    # Cache hit!
+                    end_time = time.time()
+                    metadata.update({
+                        "cache_hit": True,
+                        "similarity_score": cache_threshold,  # Approximate since Redis doesn't return exact score
+                        "response_time_ms": round((end_time - start_time) * 1000, 2)
+                    })
+
+                    answer = cached_result
+
+                    # Still store in chat history if requested
+                    if store_history and document_source:
+                        self.vector_store.store_chat_entry(question, answer, document_source)
+
+                    logger.info(f"Semantic cache hit: {metadata['response_time_ms']}ms")
+                    return answer, metadata
+
+            except Exception as e:
+                logger.warning(f"Semantic cache lookup failed: {e}")
+                # Continue with normal processing
+
+        # Cache miss or cache disabled - proceed with full RAG pipeline
         # Retrieve relevant chunks
         relevant_chunks = self.vector_store.similarity_search(query_embedding, k=k)
+        metadata["chunks_retrieved"] = len(relevant_chunks)
 
         if not relevant_chunks:
             answer = "I couldn't find any relevant information to answer your question."
+            end_time = time.time()
+            metadata["response_time_ms"] = round((end_time - start_time) * 1000, 2)
+
             if store_history and document_source:
                 self.vector_store.store_chat_entry(question, answer, document_source)
-            return answer
+            return answer, metadata
 
         # Prepare context for OpenAI
         context = "\n\n".join([chunk["text"] for chunk in relevant_chunks])
@@ -518,24 +630,38 @@ Answer:"""
             )
 
             answer = response.choices[0].message.content
+            end_time = time.time()
+            metadata["response_time_ms"] = round((end_time - start_time) * 1000, 2)
+
+            # Store in semantic cache if enabled and successful
+            if use_semantic_cache and self.semantic_cache and answer and not answer.startswith("Sorry"):
+                try:
+                    cache_key = f"question:{question}"
+                    self.semantic_cache.update(cache_key, question, answer)
+                    logger.info("Stored result in semantic cache")
+                except Exception as e:
+                    logger.warning(f"Failed to store in semantic cache: {e}")
 
             # Store chat history in Redis
             if store_history and document_source:
                 self.vector_store.store_chat_entry(question, answer, document_source)
 
             # Log retrieval info
-            logger.info(f"Retrieved {len(relevant_chunks)} chunks for context")
+            logger.info(f"Retrieved {len(relevant_chunks)} chunks for context in {metadata['response_time_ms']}ms")
             for i, chunk in enumerate(relevant_chunks):
                 logger.info(f"  Chunk {i+1}: Score {chunk['score']:.4f} from {chunk['source']}")
 
-            return answer
+            return answer, metadata
 
         except Exception as e:
             logger.error(f"Error generating response: {e}")
             error_answer = f"Sorry, I encountered an error while generating the response: {e}"
+            end_time = time.time()
+            metadata["response_time_ms"] = round((end_time - start_time) * 1000, 2)
+
             if store_history and document_source:
                 self.vector_store.store_chat_entry(question, error_answer, document_source)
-            return error_answer
+            return error_answer, metadata
 
     def get_indexed_documents(self) -> List[Dict[str, Any]]:
         """Get list of documents currently indexed"""
@@ -556,6 +682,26 @@ Answer:"""
     def document_exists(self, source: str) -> bool:
         """Check if document is already indexed"""
         return self.vector_store.document_exists(source)
+
+    def clear_semantic_cache(self, document_source: str = None):
+        """Clear semantic cache"""
+        if self.semantic_cache:
+            try:
+                self.semantic_cache.clear()
+                logger.info("Semantic cache cleared")
+            except Exception as e:
+                logger.error(f"Failed to clear semantic cache: {e}")
+        else:
+            # Fallback to manual clearing
+            self.vector_store.clear_semantic_cache(document_source)
+
+    def get_cache_stats(self, document_source: str = None) -> Dict[str, Any]:
+        """Get semantic cache statistics"""
+        if self.semantic_cache:
+            # For Redis semantic cache, we'll estimate based on Redis keys
+            return self.vector_store.get_cache_stats(document_source)
+        else:
+            return {"total_cache_entries": 0, "document_cache_entries": 0}
 
 def main():
     """Main application entry point"""
@@ -598,8 +744,9 @@ def main():
                 continue
             
             print("\nSearching for relevant information...")
-            answer = rag.query(question)
+            answer, metadata = rag.query(question, document_source=document_source)
             print(f"\nAnswer:\n{answer}")
+            print(f"Response time: {metadata['response_time_ms']}ms")
             print("-" * 50)
 
         print("\nThanks for using the RAG Workshop demo!")
