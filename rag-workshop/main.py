@@ -592,6 +592,9 @@ class RAGSystem:
                 # Continue with normal processing
 
         # Cache miss or cache disabled - proceed with full RAG pipeline
+        # Generate query embedding
+        query_embedding = self.embedding_generator.generate_query_embedding(question)
+
         # Retrieve relevant chunks
         relevant_chunks = self.vector_store.similarity_search(query_embedding, k=k)
         metadata["chunks_retrieved"] = len(relevant_chunks)
