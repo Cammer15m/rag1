@@ -77,19 +77,31 @@ def validate_openai_key(api_key):
     """Validate OpenAI API key by making a test request"""
     try:
         # Set up the client with the legacy API (0.28.1)
+        import openai
         openai.api_key = api_key
 
         # Make a simple test request to validate the key
-        response = openai.Model.list()
+        # Use a lightweight request that doesn't consume tokens
+        models = openai.Model.list()
+
+        # If we get here, the API key is valid
         return True, "API key is valid"
-    except openai.error.AuthenticationError:
-        return False, "Invalid API key - please check your key"
-    except openai.error.RateLimitError:
-        return True, "API key is valid (rate limit reached, but key works)"
-    except openai.error.APIConnectionError:
-        return False, "Cannot connect to OpenAI API - check your internet connection"
+
     except Exception as e:
-        return False, f"API validation error: {str(e)}"
+        error_str = str(e).lower()
+
+        # Check for common error patterns
+        if "invalid api key" in error_str or "incorrect api key" in error_str:
+            return False, "Invalid API key - please check your key"
+        elif "authentication" in error_str or "unauthorized" in error_str:
+            return False, "Invalid API key - authentication failed"
+        elif "rate limit" in error_str or "quota" in error_str:
+            return True, "API key is valid (rate limit reached, but key works)"
+        elif "connection" in error_str or "network" in error_str or "timeout" in error_str:
+            return False, "Cannot connect to OpenAI API - check your internet connection"
+        else:
+            # For debugging - show the actual error
+            return False, f"API validation failed: {str(e)}"
 
 def setup_openai():
     """Configure OpenAI API"""
