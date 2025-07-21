@@ -24,14 +24,14 @@ def initialize_rag_system():
         openai_api_key = os.getenv('OPENAI_API_KEY')
         
         if not redis_url or not openai_api_key:
-            st.error("❌ Missing configuration. Please run setup.py first.")
+            st.error("Missing configuration. Please run setup.py first.")
             st.stop()
-        
+
         try:
             st.session_state.rag_system = RAGSystem(redis_url, openai_api_key)
             st.session_state.document_processed = False
         except Exception as e:
-            st.error(f"❌ Failed to initialize RAG system: {e}")
+            st.error(f"Failed to initialize RAG system: {e}")
             st.stop()
 
 def process_document():
@@ -41,27 +41,27 @@ def process_document():
         document_type = os.getenv('DOCUMENT_TYPE')
         
         if not document_source or not document_type:
-            st.error("❌ Document configuration missing. Please run setup.py first.")
+            st.error("Document configuration missing. Please run setup.py first.")
             return
-        
-        with st.spinner("📄 Processing document..."):
+
+        with st.spinner("Processing document..."):
             try:
                 num_chunks = st.session_state.rag_system.process_document(document_source, document_type)
                 st.session_state.document_processed = True
                 st.session_state.num_chunks = num_chunks
-                st.success(f"✅ Document processed into {num_chunks} chunks!")
+                st.success(f"Document processed into {num_chunks} chunks!")
             except Exception as e:
-                st.error(f"❌ Error processing document: {e}")
+                st.error(f"Error processing document: {e}")
 
 def main():
     """Main Streamlit application"""
     st.set_page_config(
         page_title="RAG Workshop Demo",
-        page_icon="🚀",
+        page_icon="⚡",
         layout="wide"
     )
-    
-    st.title("🚀 RAG Workshop - Interactive Demo")
+
+    st.title("RAG Workshop - Interactive Demo")
     st.markdown("---")
     
     # Initialize RAG system
@@ -69,7 +69,7 @@ def main():
     
     # Sidebar with configuration info
     with st.sidebar:
-        st.header("📋 Configuration")
+        st.header("Configuration")
         
         redis_url = os.getenv('REDIS_URL', 'Not configured')
         document_source = os.getenv('DOCUMENT_SOURCE', 'Not configured')
@@ -93,7 +93,7 @@ def main():
         doc_type_map = {"1": "Wikipedia URL", "2": "Text File", "3": "PDF File"}
         st.text(f"Type: {doc_type_map.get(document_type, 'Unknown')}")
         
-        if st.button("🔄 Reprocess Document"):
+        if st.button("Reprocess Document"):
             st.session_state.document_processed = False
             st.rerun()
     
@@ -101,27 +101,27 @@ def main():
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.header("💬 Ask Questions")
-        
+        st.header("Ask Questions")
+
         # Process document if not already done
         if not st.session_state.get('document_processed', False):
             process_document()
-        
+
         if st.session_state.get('document_processed', False):
-            st.success(f"📚 Document ready! ({st.session_state.get('num_chunks', 0)} chunks indexed)")
-            
+            st.success(f"Document ready! ({st.session_state.get('num_chunks', 0)} chunks indexed)")
+
             # Query interface
             question = st.text_input(
-                "🤔 Your question:",
+                "Your question:",
                 placeholder="Ask anything about the document...",
                 key="question_input"
             )
-            
+
             col_ask, col_clear = st.columns([1, 4])
             with col_ask:
-                ask_button = st.button("🔍 Ask", type="primary")
+                ask_button = st.button("Ask", type="primary")
             with col_clear:
-                if st.button("🗑️ Clear History"):
+                if st.button("Clear History"):
                     st.session_state.chat_history = []
                     st.rerun()
             
@@ -131,65 +131,65 @@ def main():
             
             # Process question
             if ask_button and question:
-                with st.spinner("🔍 Searching for relevant information..."):
+                with st.spinner("Searching for relevant information..."):
                     try:
                         answer = st.session_state.rag_system.query(question)
-                        
+
                         # Add to chat history
                         st.session_state.chat_history.append({
                             'question': question,
                             'answer': answer
                         })
-                        
+
                         # Clear input
                         st.session_state.question_input = ""
                         st.rerun()
-                        
+
                     except Exception as e:
-                        st.error(f"❌ Error processing question: {e}")
-            
+                        st.error(f"Error processing question: {e}")
+
             # Display chat history
             if st.session_state.chat_history:
                 st.markdown("---")
-                st.header("💭 Conversation History")
-                
+                st.header("Conversation History")
+
                 for i, chat in enumerate(reversed(st.session_state.chat_history)):
                     with st.expander(f"Q{len(st.session_state.chat_history)-i}: {chat['question'][:50]}...", expanded=(i==0)):
-                        st.markdown(f"**🤔 Question:** {chat['question']}")
-                        st.markdown(f"**💡 Answer:** {chat['answer']}")
+                        st.markdown(f"**Question:** {chat['question']}")
+                        st.markdown(f"**Answer:** {chat['answer']}")
     
     with col2:
-        st.header("📖 How RAG Works")
-        
-        with st.expander("1. 📄 Document Processing", expanded=True):
+        st.header("How RAG Works")
+
+        with st.expander("1. Document Processing", expanded=True):
             st.markdown("""
             - **Extract text** from various sources (Wikipedia, PDFs, text files)
             - **Split into chunks** for better processing
             - **Clean and preprocess** the text
             """)
         
-        with st.expander("2. 🧠 Embedding Generation"):
+        with st.expander("2. Embedding Generation"):
             st.markdown("""
             - **Convert text to vectors** using sentence transformers
             - **Create semantic representations** of the content
             - **Enable similarity comparisons** between text pieces
             """)
-        
-        with st.expander("3. 🗄️ Vector Storage"):
+
+        with st.expander("3. Vector Storage"):
             st.markdown("""
             - **Store embeddings** in Redis vector database
             - **Create search index** for fast retrieval
             - **Enable similarity search** across all chunks
             """)
-        
-        with st.expander("4. 🔍 Retrieval"):
+
+        with st.expander("4. Retrieval"):
             st.markdown("""
             - **Convert question** to embedding
             - **Find similar chunks** using cosine similarity
             - **Rank results** by relevance score
             """)
-        
-        with st.expander("5. 🤖 Generation"):
+
+        with st.expander("5. Generation"):
             st.markdown("""
             - **Provide context** to OpenAI GPT model
             - **Generate answer** based on retrieved information
@@ -198,26 +198,26 @@ def main():
         
         # System status
         st.markdown("---")
-        st.header("🔧 System Status")
-        
+        st.header("System Status")
+
         # Check Redis connection
         try:
             st.session_state.rag_system.vector_store.redis_client.ping()
-            st.success("✅ Redis Connected")
+            st.success("Redis Connected")
         except:
-            st.error("❌ Redis Disconnected")
-        
+            st.error("Redis Disconnected")
+
         # Document status
         if st.session_state.get('document_processed', False):
-            st.success(f"✅ Document Indexed ({st.session_state.get('num_chunks', 0)} chunks)")
+            st.success(f"Document Indexed ({st.session_state.get('num_chunks', 0)} chunks)")
         else:
-            st.warning("⏳ Document Not Processed")
-        
+            st.warning("Document Not Processed")
+
         # OpenAI status
         if os.getenv('OPENAI_API_KEY'):
-            st.success("✅ OpenAI Configured")
+            st.success("OpenAI Configured")
         else:
-            st.error("❌ OpenAI Not Configured")
+            st.error("OpenAI Not Configured")
 
 if __name__ == "__main__":
     main()

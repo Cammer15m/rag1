@@ -15,7 +15,7 @@ import requests
 
 def print_header():
     """Print workshop header"""
-    print("🚀 Welcome to the RAG Workshop Setup!")
+    print("Welcome to the RAG Workshop Setup!")
     print("=" * 60)
     print("This workshop will teach you about Retrieval-Augmented Generation (RAG)")
     print("using Redis as a vector database and OpenAI for text generation.")
@@ -36,12 +36,12 @@ def validate_file_path(file_path):
 
 def setup_redis():
     """Configure Redis connection"""
-    print("\n📊 STEP 1: Redis Configuration")
+    print("\nSTEP 1: Redis Configuration")
     print("-" * 40)
     print("Redis will store our document embeddings as vectors.")
     print("You can use either:")
-    print("  • Local Redis (we'll run it in Docker)")
-    print("  • Cloud Redis (your existing instance)")
+    print("  - Local Redis (we'll run it in Docker)")
+    print("  - Cloud Redis (your existing instance)")
 
     while True:
         choice = input("\nUse local Redis container? (y/n): ").lower().strip()
@@ -49,11 +49,11 @@ def setup_redis():
         if choice == 'y':
             redis_url = "redis://localhost:6379"
             docker_profile = "local"
-            print("✅ Using local Redis container")
+            print("Using local Redis container")
             print("   We'll start Redis with RedisSearch module for vector similarity")
             break
         elif choice == 'n':
-            print("\n🌐 Cloud Redis Configuration")
+            print("\nCloud Redis Configuration")
             print("Enter your complete Redis connection string.")
             print("Example: redis://default:password@host:port")
 
@@ -61,34 +61,35 @@ def setup_redis():
                 redis_url = input("Redis connection string: ").strip()
                 if redis_url.startswith('redis://'):
                     docker_profile = "cloud"
-                    print("✅ Using cloud Redis instance")
+                    print("Using cloud Redis instance")
                     break
                 else:
-                    print("❌ Please enter a valid Redis URL starting with 'redis://'")
+                    print("Please enter a valid Redis URL starting with 'redis://'")
+            break  # Exit the main loop after cloud Redis setup
         else:
-            print("❌ Please enter 'y' or 'n'")
+            print("Please enter 'y' or 'n'")
 
     return redis_url, docker_profile
 
 def setup_openai():
     """Configure OpenAI API"""
-    print("\n🤖 STEP 2: OpenAI Configuration")
+    print("\nSTEP 2: OpenAI Configuration")
     print("-" * 40)
     print("We'll use OpenAI's GPT model to generate answers based on retrieved context.")
 
     while True:
         openai_key = getpass.getpass("Enter your OpenAI API key: ").strip()
         if openai_key:
-            print("✅ OpenAI API key configured")
+            print("OpenAI API key configured")
             break
         else:
-            print("❌ API key cannot be empty")
+            print("API key cannot be empty")
 
     return openai_key
 
 def setup_document():
     """Configure document source"""
-    print("\n📄 STEP 3: Document Source")
+    print("\nSTEP 3: Document Source")
     print("-" * 40)
     print("Choose what document you want to use for the RAG demonstration:")
     print("1. Wikipedia URL (recommended for demo)")
@@ -99,51 +100,51 @@ def setup_document():
         doc_choice = input("\nEnter choice (1-3): ").strip()
 
         if doc_choice == "1":
-            print("\n🌐 Wikipedia URL Configuration")
+            print("\nWikipedia URL Configuration")
             print("Example: https://en.wikipedia.org/wiki/Artificial_intelligence")
 
             while True:
                 doc_source = input("Enter Wikipedia URL: ").strip()
                 if doc_source.startswith('http'):
-                    print("🔍 Validating URL...")
+                    print("Validating URL...")
                     if validate_url(doc_source):
-                        print("✅ URL is accessible")
+                        print("URL is accessible")
                         break
                     else:
-                        print("❌ URL is not accessible. Please check and try again.")
+                        print("URL is not accessible. Please check and try again.")
                 else:
-                    print("❌ Please enter a valid HTTP/HTTPS URL")
+                    print("Please enter a valid HTTP/HTTPS URL")
             break
 
         elif doc_choice == "2":
-            print("\n📝 Text File Configuration")
+            print("\nText File Configuration")
 
             while True:
                 doc_source = input("Enter path to text file: ").strip()
                 if validate_file_path(doc_source):
-                    print("✅ Text file found")
+                    print("Text file found")
                     break
                 else:
-                    print("❌ File not found. Please check the path and try again.")
+                    print("File not found. Please check the path and try again.")
             break
 
         elif doc_choice == "3":
-            print("\n📋 PDF File Configuration")
+            print("\nPDF File Configuration")
 
             while True:
                 doc_source = input("Enter path to PDF file: ").strip()
                 if validate_file_path(doc_source):
                     if doc_source.lower().endswith('.pdf'):
-                        print("✅ PDF file found")
+                        print("PDF file found")
                         break
                     else:
-                        print("❌ File doesn't appear to be a PDF. Please check the extension.")
+                        print("File doesn't appear to be a PDF. Please check the extension.")
                 else:
-                    print("❌ File not found. Please check the path and try again.")
+                    print("File not found. Please check the path and try again.")
             break
 
         else:
-            print("❌ Please enter 1, 2, or 3")
+            print("Please enter 1, 2, or 3")
 
     return doc_source, doc_choice
 
@@ -151,11 +152,11 @@ def create_data_directory():
     """Create data directory for local files"""
     data_dir = Path("data")
     data_dir.mkdir(exist_ok=True)
-    print(f"✅ Created data directory: {data_dir.absolute()}")
+    print(f"Created data directory: {data_dir.absolute()}")
 
 def save_configuration(redis_url, openai_key, doc_source, doc_choice, docker_profile):
     """Save configuration to .env file"""
-    print("\n💾 STEP 4: Saving Configuration")
+    print("\nSTEP 4: Saving Configuration")
     print("-" * 40)
 
     env_vars = {
@@ -171,12 +172,12 @@ def save_configuration(redis_url, openai_key, doc_source, doc_choice, docker_pro
     for key, value in env_vars.items():
         set_key(str(env_file), key, value)
 
-    print(f"✅ Configuration saved to {env_file.absolute()}")
+    print(f"Configuration saved to {env_file.absolute()}")
     return env_vars
 
 def print_next_steps(docker_profile):
     """Print instructions for next steps"""
-    print("\n🎉 Setup Complete!")
+    print("\nSetup Complete!")
     print("=" * 60)
     print("Your RAG workshop environment is now configured.")
     print("\nNext steps:")
@@ -190,35 +191,35 @@ def print_next_steps(docker_profile):
         print("   (This will start the RAG application with your cloud Redis)")
 
     print("\n2. Choose your interface:")
-    print("   • CLI: The application will start automatically")
-    print("   • Web: Add '--profile web' to the docker-compose command")
+    print("   - CLI: The application will start automatically")
+    print("   - Web: Add '--profile web' to the docker-compose command")
     print("     Then visit: http://localhost:8501")
 
     print("\n3. Workshop Learning Points:")
-    print("   • Document processing and chunking")
-    print("   • Embedding generation with sentence transformers")
-    print("   • Vector storage and similarity search in Redis")
-    print("   • Retrieval-augmented generation with OpenAI")
+    print("   - Document processing and chunking")
+    print("   - Embedding generation with sentence transformers")
+    print("   - Vector storage and similarity search in Redis")
+    print("   - Retrieval-augmented generation with OpenAI")
 
-    print("\n📚 Files created:")
-    print("   • .env - Your configuration")
-    print("   • main.py - Core RAG application")
-    print("   • web_interface.py - Streamlit web interface")
-    print("   • docker-compose.yml - Container orchestration")
+    print("\nFiles created:")
+    print("   - .env - Your configuration")
+    print("   - main.py - Core RAG application")
+    print("   - web_interface.py - Streamlit web interface")
+    print("   - docker-compose.yml - Container orchestration")
 
 def pause_for_explanation(title, pause_time=10):
     """Pause for instructor explanation"""
-    print(f"\n⏸️  INSTRUCTOR PAUSE: {title}")
+    print(f"\nINSTRUCTOR PAUSE: {title}")
     print("=" * 60)
-    print("🎓 This is a teaching moment - instructor will explain concepts")
-    print(f"⏱️  Pausing for {pause_time} seconds...")
+    print("This is a teaching moment - instructor will explain concepts")
+    print(f"Pausing for {pause_time} seconds...")
     print("=" * 60)
 
     for i in range(pause_time, 0, -1):
-        print(f"⏱️  {i} seconds remaining...", end="\r")
+        print(f"{i} seconds remaining...", end="\r")
         time.sleep(1)
 
-    print("\n✅ Continuing setup...")
+    print("\nContinuing setup...")
     print()
 
 def setup_environment():
@@ -262,8 +263,8 @@ if __name__ == "__main__":
     try:
         setup_environment()
     except KeyboardInterrupt:
-        print("\n\n❌ Setup cancelled by user")
+        print("\n\nSetup cancelled by user")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ Setup failed: {e}")
+        print(f"\nSetup failed: {e}")
         sys.exit(1)

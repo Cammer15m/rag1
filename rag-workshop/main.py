@@ -180,9 +180,9 @@ class RedisVectorStore:
         # Test connection
         try:
             self.redis_client.ping()
-            logger.info("✅ Connected to Redis successfully")
+            logger.info("Connected to Redis successfully")
         except Exception as e:
-            logger.error(f"❌ Failed to connect to Redis: {e}")
+            logger.error(f"Failed to connect to Redis: {e}")
             raise
     
     def create_index(self, embedding_dim: int):
@@ -215,7 +215,7 @@ class RedisVectorStore:
         definition = IndexDefinition(prefix=[f"{self.index_name}:"], index_type=IndexType.HASH)
         
         self.redis_client.ft(self.index_name).create_index(schema, definition=definition)
-        logger.info(f"✅ Created Redis index '{self.index_name}' with dimension {embedding_dim}")
+        logger.info(f"Created Redis index '{self.index_name}' with dimension {embedding_dim}")
     
     def store_chunks(self, chunks: List[DocumentChunk]):
         """Store document chunks with embeddings in Redis"""
@@ -247,7 +247,7 @@ class RedisVectorStore:
             })
         
         pipe.execute()
-        logger.info(f"✅ Stored {len(chunks)} chunks in Redis")
+        logger.info(f"Stored {len(chunks)} chunks in Redis")
     
     def similarity_search(self, query_embedding: np.ndarray, k: int = 5) -> List[Dict[str, Any]]:
         """Perform similarity search for query embedding"""
@@ -291,7 +291,7 @@ class RAGSystem:
         openai.api_key = openai_api_key
         self.openai_client = openai.OpenAI(api_key=openai_api_key)
         
-        logger.info("✅ RAG System initialized successfully")
+        logger.info("RAG System initialized successfully")
     
     def process_document(self, source: str, doc_type: str) -> int:
         """Process a document and store it in the vector database"""
@@ -313,7 +313,7 @@ class RAGSystem:
         # Store in vector database
         self.vector_store.store_chunks(chunks_with_embeddings)
         
-        logger.info(f"✅ Successfully processed and stored {len(chunks)} chunks")
+        logger.info(f"Successfully processed and stored {len(chunks)} chunks")
         return len(chunks)
     
     def query(self, question: str, k: int = 5) -> str:
@@ -368,20 +368,20 @@ Answer:"""
 
 def main():
     """Main application entry point"""
-    print("🚀 RAG Workshop - Interactive Demo")
+    print("RAG Workshop - Interactive Demo")
     print("=" * 50)
-    
+
     # Load environment variables
     load_dotenv()
-    
+
     # Get configuration
     redis_url = os.getenv('REDIS_URL')
     openai_api_key = os.getenv('OPENAI_API_KEY')
     document_source = os.getenv('DOCUMENT_SOURCE')
     document_type = os.getenv('DOCUMENT_TYPE')
-    
+
     if not all([redis_url, openai_api_key, document_source, document_type]):
-        print("❌ Missing configuration. Please run setup.py first.")
+        print("Missing configuration. Please run setup.py first.")
         sys.exit(1)
     
     try:
@@ -389,12 +389,12 @@ def main():
         rag = RAGSystem(redis_url, openai_api_key)
         
         # Process document
-        print(f"\n📄 Processing document: {document_source}")
+        print(f"\nProcessing document: {document_source}")
         num_chunks = rag.process_document(document_source, document_type)
-        print(f"✅ Document processed into {num_chunks} chunks")
-        
+        print(f"Document processed into {num_chunks} chunks")
+
         # Interactive query loop
-        print(f"\n💬 Ready for questions! (type 'quit' to exit)")
+        print(f"\nReady for questions! (type 'quit' to exit)")
         print("-" * 50)
         
         while True:
@@ -406,16 +406,16 @@ def main():
             if not question:
                 continue
             
-            print("\n🔍 Searching for relevant information...")
+            print("\nSearching for relevant information...")
             answer = rag.query(question)
-            print(f"\n💡 Answer:\n{answer}")
+            print(f"\nAnswer:\n{answer}")
             print("-" * 50)
-        
-        print("\n👋 Thanks for using the RAG Workshop demo!")
-        
+
+        print("\nThanks for using the RAG Workshop demo!")
+
     except Exception as e:
         logger.error(f"Application error: {e}")
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
