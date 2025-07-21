@@ -496,8 +496,8 @@ class RAGSystem:
                 embeddings = SentenceTransformerEmbeddings()
                 self.semantic_cache = RedisSemanticCache(
                     redis_url=redis_url,
-                    embedding=embeddings,
-                    score_threshold=0.85
+                    embeddings=embeddings,
+                    distance_threshold=0.15  # Lower = more strict (0.15 corresponds to ~0.85 similarity)
                 )
                 logger.info("Semantic cache initialized successfully")
             except Exception as e:
@@ -562,12 +562,12 @@ class RAGSystem:
         # Check semantic cache if enabled and available
         if use_semantic_cache and self.semantic_cache:
             try:
-                # Update cache threshold
-                self.semantic_cache.score_threshold = cache_threshold
+                # Update cache threshold (convert similarity to distance)
+                distance_threshold = 1.0 - cache_threshold  # Convert similarity to distance
+                self.semantic_cache.distance_threshold = distance_threshold
 
-                # Create a simple prompt for cache lookup
-                cache_key = f"question:{question}"
-                cached_result = self.semantic_cache.lookup(cache_key, question)
+                # Create a cache lookup using LangChain's API
+                cached_result = self.semantic_cache.lookup(question, "gpt-3.5-turbo")
 
                 if cached_result:
                     # Cache hit!
@@ -578,7 +578,7 @@ class RAGSystem:
                         "response_time_ms": round((end_time - start_time) * 1000, 2)
                     })
 
-                    answer = cached_result
+                    answer = cached_result[0].text if cached_result else "Cache error"
 
                     # Still store in chat history if requested
                     if store_history and document_source:
@@ -636,8 +636,8 @@ Answer:"""
             # Store in semantic cache if enabled and successful
             if use_semantic_cache and self.semantic_cache and answer and not answer.startswith("Sorry"):
                 try:
-                    cache_key = f"question:{question}"
-                    self.semantic_cache.update(cache_key, question, answer)
+                    from langchain.schema import Generation
+                    self.semantic_cache.update(question, "gpt-3.5-turbo", [Generation(text=answer)])
                     logger.info("Stored result in semantic cache")
                 except Exception as e:
                     logger.warning(f"Failed to store in semantic cache: {e}")
