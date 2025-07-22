@@ -37,14 +37,112 @@ import PyPDF2
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# LangChain for semantic caching
+# Simple semantic cache implementation (avoiding RedisVL compatibility issues)
+class SimpleSemanticCache:
+    """Simple semantic cache using Redis and cosine similarity"""
+
+    def __init__(self, redis_url: str, embeddings, distance_threshold: float = 0.15):
+        self.redis_client = redis.from_url(redis_url)
+        self.embeddings = embeddings
+        self.distance_threshold = distance_threshold
+        self.cache_prefix = "semantic_cache:"
+
+    def _get_cache_key(self, query: str, llm_string: str, document_context: str = None) -> str:
+        """Generate cache key including document context"""
+        import hashlib
+        # Include document context in cache key to avoid cross-document cache hits
+        key_data = f"{query}:{llm_string}:{document_context or 'no_context'}"
+        return f"{self.cache_prefix}{hashlib.md5(key_data.encode()).hexdigest()}"
+
+    def _cosine_similarity(self, a: List[float], b: List[float]) -> float:
+        """Calculate cosine similarity between two vectors"""
+        import numpy as np
+        a_np = np.array(a)
+        b_np = np.array(b)
+        return np.dot(a_np, b_np) / (np.linalg.norm(a_np) * np.linalg.norm(b_np))
+
+    def lookup(self, prompt: str, llm_string: str, document_context: str = None):
+        """Look up cached result for similar queries"""
+        try:
+            # Get embedding for the query
+            query_embedding = self.embeddings.embed_query(prompt)
+
+            # Search through cached queries
+            cache_keys = self.redis_client.keys(f"{self.cache_prefix}*")
+            best_similarity = 0.0
+            best_result = None
+
+            for key in cache_keys:
+                cached_data = self.redis_client.hgetall(key)
+                if not cached_data:
+                    continue
+
+                # Get cached embedding and result
+                cached_embedding_str = cached_data.get(b'embedding', b'').decode()
+                cached_result = cached_data.get(b'result', b'').decode()
+
+                if cached_embedding_str and cached_result:
+                    try:
+                        import json
+                        cached_embedding = json.loads(cached_embedding_str)
+                        similarity = self._cosine_similarity(query_embedding, cached_embedding)
+
+                        # Convert distance threshold to similarity threshold
+                        similarity_threshold = 1.0 - self.distance_threshold
+
+                        if similarity > similarity_threshold and similarity > best_similarity:
+                            best_similarity = similarity
+                            best_result = cached_result
+                    except:
+                        continue
+
+            return best_result
+        except Exception as e:
+            logger.warning(f"Cache lookup failed: {e}")
+            return None
+
+    def update(self, prompt: str, llm_string: str, return_val, document_context: str = None):
+        """Store result in cache"""
+        try:
+            # Get embedding for the query
+            query_embedding = self.embeddings.embed_query(prompt)
+
+            # Extract text from return_val (LangChain Generation object)
+            if hasattr(return_val, '__iter__') and len(return_val) > 0:
+                result_text = return_val[0].text if hasattr(return_val[0], 'text') else str(return_val[0])
+            else:
+                result_text = str(return_val)
+
+            # Store in Redis
+            cache_key = self._get_cache_key(prompt, llm_string, document_context)
+            import json
+            self.redis_client.hset(cache_key, mapping={
+                'query': prompt,
+                'embedding': json.dumps(query_embedding),
+                'result': result_text,
+                'llm_string': llm_string
+            })
+
+            # Set expiration (optional)
+            self.redis_client.expire(cache_key, 86400)  # 24 hours
+
+        except Exception as e:
+            logger.warning(f"Failed to store in cache: {e}")
+
+    def clear(self):
+        """Clear all cached entries"""
+        cache_keys = self.redis_client.keys(f"{self.cache_prefix}*")
+        if cache_keys:
+            self.redis_client.delete(*cache_keys)
+
+# LangChain for semantic caching (fallback to simple implementation)
 try:
     from langchain_redis.cache import RedisSemanticCache
     from langchain_core.embeddings import Embeddings
     LANGCHAIN_AVAILABLE = True
 except ImportError:
     LANGCHAIN_AVAILABLE = False
-    logger.warning("LangChain Redis not available. Semantic caching will be disabled.")
+    logger.warning("LangChain Redis not available. Using simple semantic cache implementation.")
 
 @dataclass
 class DocumentChunk:
@@ -122,7 +220,20 @@ class DocumentProcessor:
         except Exception as e:
             logger.error(f"Error processing PDF file: {e}")
             raise
-    
+
+    def process_raw_content(self, content: str, source: str) -> List[DocumentChunk]:
+        """Process raw text content directly"""
+        logger.info(f"Processing raw content from: {source}")
+
+        try:
+            # Clean up text
+            text = ' '.join(content.split())
+            return self._chunk_text(text, source)
+
+        except Exception as e:
+            logger.error(f"Error processing raw content: {e}")
+            raise
+
     def _chunk_text(self, text: str, source: str) -> List[DocumentChunk]:
         """Split text into overlapping chunks"""
         chunks = []
@@ -198,6 +309,18 @@ class SentenceTransformerEmbeddings(Embeddings):
         """Embed query text."""
         embedding = self.model.encode([text])[0]
         return embedding.tolist()
+
+    def embed(self, texts: List[str], **kwargs) -> List[List[float]]:
+        """Embed texts - compatibility method for RedisVL."""
+        # Remove 'dtype' and other unsupported kwargs that RedisVL might pass
+        supported_kwargs = {}
+        # Only pass through kwargs that sentence-transformers actually supports
+        for key, value in kwargs.items():
+            if key in ['batch_size', 'show_progress_bar', 'output_value', 'convert_to_numpy', 'convert_to_tensor', 'device', 'normalize_embeddings']:
+                supported_kwargs[key] = value
+
+        embeddings = self.model.encode(texts, **supported_kwargs)
+        return [embedding.tolist() for embedding in embeddings]
 
 class RedisVectorStore:
     """Redis-based vector storage with similarity search"""
@@ -489,24 +612,40 @@ class RAGSystem:
         openai.api_key = openai_api_key
         self.openai_client = None  # Not needed for legacy API
 
-        # Initialize semantic cache if LangChain is available
+        # Initialize both semantic cache implementations
         self.semantic_cache = None
+        self.langchain_cache = None
+
+        # Initialize custom semantic cache
+        try:
+            embeddings = SentenceTransformerEmbeddings()
+            self.semantic_cache = SimpleSemanticCache(
+                redis_url=redis_url,
+                embeddings=embeddings,
+                distance_threshold=0.15  # Lower = more strict (0.15 corresponds to ~0.85 similarity)
+            )
+            logger.info("Custom semantic cache initialized successfully")
+        except Exception as e:
+            logger.warning(f"Failed to initialize custom semantic cache: {e}")
+            self.semantic_cache = None
+
+        # Initialize LangChain semantic cache (may fail due to compatibility issues)
         if LANGCHAIN_AVAILABLE:
             try:
-                embeddings = SentenceTransformerEmbeddings()
-                self.semantic_cache = RedisSemanticCache(
+                embeddings_lc = SentenceTransformerEmbeddings()
+                self.langchain_cache = RedisSemanticCache(
                     redis_url=redis_url,
-                    embeddings=embeddings,
-                    distance_threshold=0.15  # Lower = more strict (0.15 corresponds to ~0.85 similarity)
+                    embeddings=embeddings_lc,
+                    distance_threshold=0.15
                 )
-                logger.info("Semantic cache initialized successfully")
+                logger.info("LangChain semantic cache initialized successfully")
             except Exception as e:
-                logger.warning(f"Failed to initialize semantic cache: {e}")
-                self.semantic_cache = None
+                logger.warning(f"Failed to initialize LangChain semantic cache: {e}")
+                self.langchain_cache = None
 
         logger.info("RAG System initialized successfully")
     
-    def process_document(self, source: str, doc_type: str, force_reprocess: bool = False) -> int:
+    def process_document(self, source: str, doc_type: str, force_reprocess: bool = False, content: str = None) -> int:
         """Process a document and store it in the vector database"""
         logger.info(f"Processing document: {source} (type: {doc_type})")
 
@@ -521,15 +660,20 @@ class RAGSystem:
                 logger.info(f"Using existing {chunk_count} chunks")
                 return chunk_count
 
-        # Process document based on type
-        if doc_type == "1":  # Wikipedia URL
-            chunks = self.document_processor.process_wikipedia_url(source)
-        elif doc_type == "2":  # Text file
-            chunks = self.document_processor.process_text_file(source)
-        elif doc_type == "3":  # PDF file
-            chunks = self.document_processor.process_pdf_file(source)
+        # If content is provided directly, use it
+        if content:
+            # Process raw content directly
+            chunks = self.document_processor.process_raw_content(content, source)
         else:
-            raise ValueError(f"Unsupported document type: {doc_type}")
+            # Process document based on type
+            if doc_type == "1":  # Wikipedia URL
+                chunks = self.document_processor.process_wikipedia_url(source)
+            elif doc_type == "2":  # Text file
+                chunks = self.document_processor.process_text_file(source)
+            elif doc_type == "3":  # PDF file
+                chunks = self.document_processor.process_pdf_file(source)
+            else:
+                raise ValueError(f"Unsupported document type: {doc_type}")
 
         # Generate embeddings
         chunks_with_embeddings = self.embedding_generator.generate_embeddings(chunks)
@@ -545,46 +689,66 @@ class RAGSystem:
     
     def query(self, question: str, document_source: str = None, k: int = 5,
              store_history: bool = True, use_semantic_cache: bool = False,
-             cache_threshold: float = 0.85) -> Tuple[str, Dict[str, Any]]:
+             cache_threshold: float = 0.85, cache_implementation: str = "Custom Implementation") -> Tuple[str, Dict[str, Any]]:
         """Answer a question using RAG with optional semantic caching"""
         start_time = time.time()
         logger.info(f"Processing query: {question}")
 
         # Initialize response metadata
+        # Determine which cache to use
+        active_cache = None
+        cache_type = "none"
+
+        if use_semantic_cache:
+            if cache_implementation == "Custom Implementation" and self.semantic_cache:
+                active_cache = self.semantic_cache
+                cache_type = "custom"
+            elif cache_implementation == "LangChain Implementation" and self.langchain_cache:
+                active_cache = self.langchain_cache
+                cache_type = "langchain"
+
         metadata = {
             "cache_hit": False,
             "similarity_score": 0.0,
             "response_time_ms": 0,
             "chunks_retrieved": 0,
-            "cache_enabled": use_semantic_cache and self.semantic_cache is not None
+            "cache_enabled": use_semantic_cache and active_cache is not None,
+            "cache_type": cache_type
         }
 
         # Check semantic cache if enabled and available
-        if use_semantic_cache and self.semantic_cache:
+        if use_semantic_cache and active_cache:
             try:
                 # Update cache threshold (convert similarity to distance)
                 distance_threshold = 1.0 - cache_threshold  # Convert similarity to distance
-                self.semantic_cache.distance_threshold = distance_threshold
+                active_cache.distance_threshold = distance_threshold
 
-                # Create a cache lookup using LangChain's API
-                cached_result = self.semantic_cache.lookup(question, "gpt-3.5-turbo")
+                # Create a cache lookup using the selected cache implementation
+                if cache_type == "custom":
+                    cached_result = active_cache.lookup(question, "gpt-3.5-turbo", document_source)
+                else:  # langchain
+                    cached_result = active_cache.lookup(question, "gpt-3.5-turbo")
 
                 if cached_result:
                     # Cache hit!
                     end_time = time.time()
                     metadata.update({
                         "cache_hit": True,
-                        "similarity_score": cache_threshold,  # Approximate since Redis doesn't return exact score
+                        "similarity_score": cache_threshold,  # Approximate since we don't return exact score
                         "response_time_ms": round((end_time - start_time) * 1000, 2)
                     })
 
-                    answer = cached_result[0].text if cached_result else "Cache error"
+                    # Handle different cache result formats
+                    if cache_type == "custom":
+                        answer = cached_result  # Our custom cache returns string directly
+                    else:  # langchain
+                        answer = cached_result[0].text if hasattr(cached_result[0], 'text') else str(cached_result[0])
 
                     # Still store in chat history if requested
                     if store_history and document_source:
                         self.vector_store.store_chat_entry(question, answer, document_source)
 
-                    logger.info(f"Semantic cache hit: {metadata['response_time_ms']}ms")
+                    logger.info(f"Semantic cache hit ({cache_type}): {metadata['response_time_ms']}ms")
                     return answer, metadata
 
             except Exception as e:
@@ -637,13 +801,19 @@ Answer:"""
             metadata["response_time_ms"] = round((end_time - start_time) * 1000, 2)
 
             # Store in semantic cache if enabled and successful
-            if use_semantic_cache and self.semantic_cache and answer and not answer.startswith("Sorry"):
+            if use_semantic_cache and active_cache and answer and not answer.startswith("Sorry"):
                 try:
-                    from langchain.schema import Generation
-                    self.semantic_cache.update(question, "gpt-3.5-turbo", [Generation(text=answer)])
-                    logger.info("Stored result in semantic cache")
+                    if cache_type == "custom":
+                        # Our custom cache expects string directly
+                        from langchain_core.outputs import Generation
+                        active_cache.update(question, "gpt-3.5-turbo", [Generation(text=answer)], document_source)
+                    else:  # langchain
+                        # LangChain cache expects Generation objects
+                        from langchain_core.outputs import Generation
+                        active_cache.update(question, "gpt-3.5-turbo", [Generation(text=answer)])
+                    logger.info(f"Stored result in semantic cache ({cache_type})")
                 except Exception as e:
-                    logger.warning(f"Failed to store in semantic cache: {e}")
+                    logger.warning(f"Failed to store in semantic cache ({cache_type}): {e}")
 
             # Store chat history in Redis
             if store_history and document_source:
@@ -688,13 +858,27 @@ Answer:"""
 
     def clear_semantic_cache(self, document_source: str = None):
         """Clear semantic cache"""
+        cleared_any = False
+
+        # Clear custom cache
         if self.semantic_cache:
             try:
                 self.semantic_cache.clear()
-                logger.info("Semantic cache cleared")
+                logger.info("Custom semantic cache cleared")
+                cleared_any = True
             except Exception as e:
-                logger.error(f"Failed to clear semantic cache: {e}")
-        else:
+                logger.error(f"Failed to clear custom semantic cache: {e}")
+
+        # Clear LangChain cache
+        if self.langchain_cache:
+            try:
+                self.langchain_cache.clear()
+                logger.info("LangChain semantic cache cleared")
+                cleared_any = True
+            except Exception as e:
+                logger.error(f"Failed to clear LangChain semantic cache: {e}")
+
+        if not cleared_any:
             # Fallback to manual clearing
             self.vector_store.clear_semantic_cache(document_source)
 
